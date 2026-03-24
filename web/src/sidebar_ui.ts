@@ -29,6 +29,7 @@ import * as settings_preferences from "./settings_preferences.ts";
 import * as spectators from "./spectators.ts";
 import {current_user} from "./state_data.ts";
 import * as stream_list from "./stream_list.ts";
+import * as topic_list from "./topic_list.ts";
 import * as ui_util from "./ui_util.ts";
 import {user_settings} from "./user_settings.ts";
 import * as util from "./util.ts";
@@ -354,13 +355,13 @@ export function initialize_left_sidebar(): void {
     stream_list.update_unread_counts_visibility();
     initialize_left_sidebar_cursor();
     set_event_handlers();
+    topic_list.setup_global_topic_search_typeahead();
 }
 
 export function focus_topic_search_filter(): void {
     popovers.hide_all();
     show_left_sidebar();
-    const $filter = $("#topic_filter_query");
-    $filter.trigger("focus");
+    topic_list.get_active_topic_filter_query().trigger("focus");
 }
 
 export function initialize_right_sidebar(): void {
@@ -677,7 +678,7 @@ export function set_event_handlers(): void {
         }
         // Clear search input so that there is no confusion
         // about which search input is active.
-        $search_input.val("");
+        topic_list.clear_left_sidebar_search_for_enter_key();
         const $nearest_link = $row.find("a").first();
         if ($nearest_link.length > 0) {
             // If the row has a link, we click it.

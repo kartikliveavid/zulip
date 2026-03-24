@@ -810,6 +810,8 @@ export function zoom_in_topics(stream_id: number): void {
     const sub = sub_store.get(stream_id);
     assert(sub !== undefined);
 
+    topic_list.teardown_topic_search_typeahead();
+
     zoomed_in_row = new StreamSidebarRow(sub, true);
     $("#more-topics-modal").replaceWith(zoomed_in_row.$list_item);
     $("#more-topics-modal").find("div.bottom_left_row").append($(render_filter_topics()));
@@ -817,12 +819,14 @@ export function zoom_in_topics(stream_id: number): void {
 }
 
 export function zoom_out_topics(): void {
+    topic_list.teardown_topic_search_typeahead();
     $("#left-sidebar").removeClass("zoom-in");
     $("#left-sidebar").removeClass("zoom-in-topics");
     $("#left-sidebar-modal").removeClass("zoom-in-topics");
     $("#stream_filters li.narrow-filter").toggleClass("hide", false);
     $("#more-topics-modal").empty();
     zoomed_in_row = undefined;
+    topic_list.setup_global_topic_search_typeahead();
 }
 
 export function set_in_home_view(stream_id: number, in_home: boolean): void {
@@ -1550,7 +1554,11 @@ export function set_event_handlers({
 
         if ($(e.target).closest(".zoomed-new-topic").length > 0) {
             trigger = "zoomed new topic";
-            topic = $("#topic_filter_query").text().trim().slice(0, realm.max_topic_length);
+            topic = topic_list
+                .get_active_topic_filter_query()
+                .text()
+                .trim()
+                .slice(0, realm.max_topic_length);
         }
 
         compose_actions.start({
@@ -1651,13 +1659,18 @@ function toggle_inactive_or_muted_channels($section_container: JQuery): void {
 }
 
 export function searching(): boolean {
+    // Only the top-of-sidebar filter uses .left-sidebar-search-input.
+    // The zoomed "all topics" filter is #topic_filter_query (handled separately on Esc).
     return $(".left-sidebar-search-input").expectOne().is(":focus");
 }
 
 export function clear_search(): void {
     const $filter = $(".left-sidebar-search-input").expectOne();
-    if ($filter.val() !== "") {
-        $filter.val("");
+    const had_text = $filter.text().trim() !== "";
+    const had_pills = (topic_list.topic_filter_pill_widget?.items().length ?? 0) > 0;
+    if (had_text || had_pills) {
+        topic_list.topic_filter_pill_widget?.clear(true);
+        $filter.empty();
         $filter.trigger("input");
     }
     $filter.trigger("blur");

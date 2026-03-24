@@ -424,13 +424,14 @@ export function clear_topic_search(e: JQuery.Event): void {
 
     topic_filter_pill_widget?.clear(true);
 
-    const $input = $("#topic_filter_query");
+    const $input = get_active_topic_filter_query();
     // Since the `clear` function of the topic_filter_pill_widget
     // takes care of clearing both the text content and the
     // pills, we just need to trigger an input event on the
     // contenteditable element to reset the topic list via
     // the `input` event handler without having to manually
     // manage the reset of the topic list.
+    $input.empty();
     $input.trigger("input");
 }
 
@@ -576,11 +577,15 @@ export function zoom_in($stream_li: JQuery): void {
     left_sidebar_scroll_zoomed_in_topic_into_view();
 }
 
-export function get_left_sidebar_topic_search_term(): string {
+export function get_active_topic_filter_query(): JQuery {
     if (zoomed) {
-        return $("#topic_filter_query").text().trim();
+        return $("#topic_filter_query");
     }
-    return ui_util.get_left_sidebar_search_term();
+    return $("#left_sidebar_global_topic_filter_query");
+}
+
+export function get_left_sidebar_topic_search_term(): string {
+    return get_active_topic_filter_query().text().trim();
 }
 
 export function get_typeahead_search_pills_syntax(): string {
@@ -604,23 +609,43 @@ export function get_typeahead_search_pills_syntax(): string {
 }
 
 function set_search_bar_text(text: string): void {
-    const $input = $("#topic_filter_query");
+    const $input = get_active_topic_filter_query();
     $input.text(text);
     $input.trigger("input");
 }
 
-export function setup_topic_search_typeahead(): void {
-    const $input = $("#topic_filter_query");
-    const $pill_container = $("#left-sidebar-filter-topic-input");
+let $topic_filter_query_for_keydown: JQuery | undefined;
 
-    if ($input.length === 0 || $pill_container.length === 0) {
+function topic_filter_query_keydown_handler(e: JQuery.KeyDownEvent): void {
+    if (e.key === "Enter") {
+        e.preventDefault();
+        e.stopPropagation();
+    } else if (e.key === ",") {
+        e.stopPropagation();
+    }
+}
+
+export function teardown_topic_search_typeahead(): void {
+    topic_state_typeahead?.unlisten();
+    topic_state_typeahead = undefined;
+    if ($topic_filter_query_for_keydown !== undefined) {
+        $topic_filter_query_for_keydown.off("keydown", topic_filter_query_keydown_handler);
+        $topic_filter_query_for_keydown = undefined;
+    }
+    topic_filter_pill_widget = null;
+}
+
+function setup_topic_filter_typeahead($pill_container: JQuery, $query_input: JQuery): void {
+    teardown_topic_search_typeahead();
+
+    if ($query_input.length === 0 || $pill_container.length === 0) {
         return;
     }
 
     topic_filter_pill_widget = topic_filter_pill.create_pills($pill_container);
 
     const typeahead_input: TypeaheadInputElement = {
-        $element: $input,
+        $element: $query_input,
         type: "contenteditable",
     };
 
@@ -628,23 +653,16 @@ export function setup_topic_search_typeahead(): void {
         ...topic_filter_pill.get_typeahead_base_options(),
         source() {
             const stream_id = active_stream_id();
-            assert(stream_id !== undefined);
+            if (stream_id === undefined) {
+                return [];
+            }
 
             const pills = topic_filter_pill_widget!.items();
-            const query = $("#topic_filter_query").text().trim();
-            const has_locally_available_resolved_topics =
-                stream_topic_history.stream_has_locally_available_resolved_topics(stream_id);
+            const query = $query_input.text().trim();
             return topic_filter_pill.get_matching_filter_options({
                 current_items: pills,
                 query,
-                // Technically, it could still be useful to show
-                // the is:resolved option, as local data is not
-                // complete. But because zooming the topic list
-                // does the topic history fetch, it's reasonable to
-                // ignore that possibility and just only show the
-                // resolved topic options if we can confirm
-                // they're relevant.
-                allow_resolved_topic_filters: has_locally_available_resolved_topics,
+                allow_resolved_topic_filters: true,
             });
         },
         updater(item: TopicFilterPill) {
@@ -652,28 +670,47 @@ export function setup_topic_search_typeahead(): void {
             topic_filter_pill_widget.clear(true);
             topic_filter_pill_widget.appendValue(item.syntax);
             set_search_bar_text("");
-            $input.trigger("focus");
+            $query_input.trigger("focus");
             return get_left_sidebar_topic_search_term();
         },
     };
 
     topic_state_typeahead = new Typeahead(typeahead_input, options);
 
-    $input.on("keydown", (e: JQuery.KeyDownEvent) => {
-        if (e.key === "Enter") {
-            e.preventDefault();
-            e.stopPropagation();
-        } else if (e.key === ",") {
-            e.stopPropagation();
-            return;
-        }
-    });
+    $topic_filter_query_for_keydown = $query_input;
+    $query_input.on("keydown", topic_filter_query_keydown_handler);
 
     topic_filter_pill_widget.onPillRemove(() => {
-        if (zoomed_in_widget) {
-            zoomed_in_widget.build();
+        const stream_id = active_stream_id();
+        if (stream_id === undefined) {
+            return;
+        }
+        if (zoomed) {
+            zoomed_in_widget?.build();
+        } else {
+            for (const widget of active_widgets.values()) {
+                widget.build();
+            }
         }
     });
+}
+
+export function setup_global_topic_search_typeahead(): void {
+    const $pill_container = $("#left-sidebar-global-filter-topic-input");
+    const $query_input = $("#left_sidebar_global_topic_filter_query");
+    setup_topic_filter_typeahead($pill_container, $query_input);
+}
+
+export function setup_topic_search_typeahead(): void {
+    const $input = $("#topic_filter_query");
+    const $pill_container = $("#left-sidebar-filter-topic-input");
+    setup_topic_filter_typeahead($pill_container, $input);
+}
+
+/** Clears topic filter pills and the global sidebar filter text (unzoomed sidebar search). */
+export function clear_left_sidebar_search_for_enter_key(): void {
+    topic_filter_pill_widget?.clear(true);
+    $("#left_sidebar_global_topic_filter_query").empty();
 }
 
 export function initialize({
@@ -723,44 +760,61 @@ export function initialize({
     $("#more-topics-modal").on("click", ".topic-box", on_topic_box_click);
     $("#stream_filters").on("click", ".topic-box", on_topic_box_click);
 
-    $("body").on("input", "#left-sidebar-filter-topic-input", (): void => {
-        const stream_id = active_stream_id();
-        assert(stream_id !== undefined);
-
-        const search_term = get_left_sidebar_topic_search_term();
-        const is_previous_search_term_empty = previous_search_term === "";
-        previous_search_term = search_term;
-
-        const left_sidebar_scroll_container = scroll_util.get_left_sidebar_scroll_container();
-        if (search_term === "") {
-            requestAnimationFrame(() => {
-                zoomed_in_widget!.build();
-                // Restore previous scroll position.
-                left_sidebar_scroll_container.scrollTop(pre_search_scroll_position);
-            });
-
-            // When the contenteditable div is empty, the browser
-            // adds a <br> element to it, which interferes with
-            // the ":empty" selector in the CSS. Hence, we detect
-            // this case and clear the content of the div to ensure
-            // that the CSS styles are applied correctly.
-            // TODO: Remove this when we have a better way to handle
-            // empty contenteditable elements. Since while testing this
-            // effect in a sandbox, a `display: inline` applied to the
-            // contenteditable element seems to fix the issue, but that
-            // doesn't work in this particular case.
-            // See: https://stackoverflow.com/questions/14638887/br-is-inserted-into-contenteditable-html-element-if-left-empty
-            $("#topic_filter_query").empty();
-        } else {
-            if (is_previous_search_term_empty) {
-                // Store original scroll position to be restored later.
-                pre_search_scroll_position = left_sidebar_scroll_container.scrollTop()!;
+    $("body").on(
+        "input",
+        "#left-sidebar-filter-topic-input, #left-sidebar-global-filter-topic-input",
+        (): void => {
+            const stream_id = active_stream_id();
+            if (stream_id === undefined) {
+                return;
             }
-            requestAnimationFrame(() => {
-                zoomed_in_widget!.build();
-                // Always scroll to top when there is a search term present.
-                left_sidebar_scroll_container.scrollTop(0);
-            });
-        }
-    });
+
+            const search_term = get_left_sidebar_topic_search_term();
+            const is_previous_search_term_empty = previous_search_term === "";
+            previous_search_term = search_term;
+
+            const left_sidebar_scroll_container = scroll_util.get_left_sidebar_scroll_container();
+
+            function rebuild_topic_lists(): void {
+                if (zoomed) {
+                    zoomed_in_widget?.build();
+                } else {
+                    for (const widget of active_widgets.values()) {
+                        widget.build();
+                    }
+                }
+            }
+
+            if (search_term === "") {
+                requestAnimationFrame(() => {
+                    rebuild_topic_lists();
+                    // Restore previous scroll position.
+                    left_sidebar_scroll_container.scrollTop(pre_search_scroll_position);
+                });
+
+                // When the contenteditable div is empty, the browser
+                // adds a <br> element to it, which interferes with
+                // the ":empty" selector in the CSS. Hence, we detect
+                // this case and clear the content of the div to ensure
+                // that the CSS styles are applied correctly.
+                // TODO: Remove this when we have a better way to handle
+                // empty contenteditable elements. Since while testing this
+                // effect in a sandbox, a `display: inline` applied to the
+                // contenteditable element seems to fix the issue, but that
+                // doesn't work in this particular case.
+                // See: https://stackoverflow.com/questions/14638887/br-is-inserted-into-contenteditable-html-element-if-left-empty
+                get_active_topic_filter_query().empty();
+            } else {
+                if (is_previous_search_term_empty) {
+                    // Store original scroll position to be restored later.
+                    pre_search_scroll_position = left_sidebar_scroll_container.scrollTop()!;
+                }
+                requestAnimationFrame(() => {
+                    rebuild_topic_lists();
+                    // Always scroll to top when there is a search term present.
+                    left_sidebar_scroll_container.scrollTop(0);
+                });
+            }
+        },
+    );
 }

@@ -1526,7 +1526,8 @@ li.active-sub-filter {
 
     /* Keep topic filters to a single line, and show
        an ellipsis when the input loses focus. */
-    #left-sidebar-filter-topic-input {
+    #left-sidebar-filter-topic-input,
+    #left-sidebar-global-filter-topic-input {
         flex-wrap: nowrap;
 
         .pill {
