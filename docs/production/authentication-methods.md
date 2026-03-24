@@ -998,7 +998,7 @@ integration](../production/scim.md).
    By default, Authentik provides a single full name value via
    `http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name`. Setting both
    `attr_first_name` and `attr_last_name` to this value will result in doubled
-   names in Zulip (e.g. "Jane Hacker Jane Hacker"). If your Authentik setup
+   names in Zulip (e.g., "Jane Hacker Jane Hacker"). If your Authentik setup
    provides separate first/last name attributes, you can configure them here;
    otherwise, omit these settings and let users set their Zulip display names.
 
