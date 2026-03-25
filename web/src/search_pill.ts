@@ -2,6 +2,7 @@ import $ from "jquery";
 import assert from "minimalistic-assert";
 
 import render_input_pill from "../templates/input_pill.hbs";
+import render_search_channel_pill_template from "../templates/search_channel_pill.hbs";
 import render_search_list_item from "../templates/search_list_item.hbs";
 import render_search_user_pill from "../templates/search_user_pill.hbs";
 
@@ -36,7 +37,14 @@ export type SearchUserPillContext = {
     }[];
 };
 
-type SearchPill = ({type: "generic_operator"} & NarrowCanonicalTerm) | SearchUserPill;
+export type SearchChannelPill = {
+    type: "search_channel";
+    operator: "channel";
+    negated: boolean;
+    stream_ids: number[];
+};
+
+type SearchPill = ({type: "generic_operator"} & NarrowCanonicalTerm) | SearchUserPill | SearchChannelPill;
 
 export type SearchPillWidget = InputPillContainer<SearchPill>;
 
@@ -50,13 +58,17 @@ type PillRenderData =
               is_combined_channel_topic?: boolean;
               combined_channel_name?: string;
           })
-    | SearchUserPill;
+    | SearchUserPill
+    | SearchChannelPill;
 
 export function create_item_from_search_string(search_string: string): SearchPill | undefined {
     const search_term = util.the(Filter.parse(search_string));
     const potential_narrow_term = Filter.convert_suggestion_to_term(search_term);
 
     if (potential_narrow_term) {
+        if (potential_narrow_term.operator === "channel") {
+            return search_channel_pill_from_term(potential_narrow_term);
+        }
         return {
             type: "generic_operator",
             ...potential_narrow_term,
@@ -79,10 +91,8 @@ export function get_search_string_from_item(item: SearchPill): string {
             operand = util.get_final_topic_display_name(item.operand);
             break;
         case "channel":
-            if (item.operand === "") {
-                operand = "";
-            }
-            operand = stream_data.get_valid_sub_by_id_string(item.operand).name;
+            assert(item.type === "search_channel");
+            operand = item.stream_ids.join(",");
             break;
         default:
             operand = item.operand;
@@ -101,6 +111,34 @@ function on_pill_exit(
     all_pills: InputPill<SearchPill>[],
     remove_pill: (pill: HTMLElement) => void,
 ): void {
+    const $channel_pill_container = $(clicked_element).parents(".channel-pill-container");
+    if ($channel_pill_container.length > 0) {
+        const stream_id_string = $(clicked_element).closest(".pill").attr("data-stream-id");
+        assert(stream_id_string !== undefined);
+        const stream_id = Number.parseInt(stream_id_string, 10);
+
+        const outer_idx = all_pills.findIndex((pill) => pill.$element[0] === $channel_pill_container[0]);
+        assert(outer_idx !== -1);
+        const channel_container_pill = all_pills[outer_idx]!.item;
+        assert(channel_container_pill.type === "search_channel");
+
+        if (channel_container_pill.stream_ids.length === 1) {
+            assert(util.the(channel_container_pill.stream_ids) === stream_id);
+            remove_pill(util.the($channel_pill_container));
+            return;
+        }
+
+        const ch_idx = channel_container_pill.stream_ids.indexOf(stream_id);
+        assert(ch_idx !== -1);
+        channel_container_pill.stream_ids.splice(ch_idx, 1);
+
+        const $outer_container = all_pills[outer_idx]!.$element;
+        const $to_remove = $outer_container.find(`[data-stream-id="${CSS.escape(stream_id_string)}"]`);
+        assert($to_remove.length === 1);
+        $to_remove.remove();
+        return;
+    }
+
     const $user_pill_container = $(clicked_element).parents(".user-pill-container");
     if ($user_pill_container.length === 0) {
         // This is just a regular search pill, so we don't need to do fancy logic.
@@ -157,6 +195,10 @@ function maybe_generate_combined_channel_topic_pill(
     if (search_terms[index - 1]?.operator !== "channel") {
         return undefined;
     }
+    const prev_term = Filter.convert_suggestion_to_term(search_terms[index - 1]!);
+    if (prev_term?.operator === "channel" && prev_term.operand.includes(",")) {
+        return undefined;
+    }
     // Specific topics only make sense with a specific channel,
     // not a negated channel.
     if (search_terms[index - 1]?.negated === true) {
@@ -209,6 +251,8 @@ export function generate_pills_html(suggestion: Suggestion, text_query: string):
             case "dm-including":
             case "sender":
                 return search_user_pill_data_from_term(narrow_term);
+            case "channel":
+                return search_channel_pill_from_term(narrow_term);
             case "topic": {
                 if (search_pill.operand === "") {
                     // There are three variants of this suggestion state:
@@ -315,6 +359,12 @@ export function generate_pills_html(suggestion: Suggestion, text_query: string):
         // Don't add description html for search terms, since those "pills"
         // are already set up to only display text and no pill. We also
         // don't show it for most user pills.
+        if (render_data.type === "search_channel") {
+            return render_search_list_item({
+                pills: pill_render_data,
+            });
+        }
+
         if (render_data.type === "generic_operator" && render_data.operator !== "search") {
             let description_html: string;
             const is_operator_suggestion =
@@ -365,6 +415,9 @@ export function create_pills($pill_container: JQuery): SearchPillWidget {
                 case "sender":
                     assert(item.type === "search_user");
                     return render_search_user_pill(item);
+                case "channel":
+                    assert(item.type === "search_channel");
+                    return html_for_search_channel_pill(item);
                 case "topic":
                     if (item.operand === "") {
                         return render_input_pill({
@@ -389,6 +442,34 @@ export function create_pills($pill_container: JQuery): SearchPillWidget {
     // presses enter, we validate the input then.
     pills.createPillonPaste(() => false);
     return pills;
+}
+
+function html_for_search_channel_pill(item: SearchChannelPill): string {
+    const channels = item.stream_ids.map((stream_id) => {
+        const sub = stream_data.get_sub_by_id_string(String(stream_id));
+        assert(sub !== undefined);
+        return {stream_id, name: sub.name};
+    });
+    return render_search_channel_pill_template({
+        operator: item.operator,
+        negated: item.negated,
+        channels,
+    });
+}
+
+export function search_channel_pill_from_term(term: NarrowCanonicalTerm): SearchChannelPill {
+    assert(term.operator === "channel");
+    const stream_ids = term.operand
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .map((s) => Number.parseInt(s, 10));
+    return {
+        type: "search_channel",
+        operator: "channel",
+        negated: term.negated ?? false,
+        stream_ids,
+    };
 }
 
 function get_user_ids_from_term_with_user_pill_operator(term: NarrowCanonicalTerm): number[] {
@@ -503,6 +584,12 @@ export function set_search_bar_contents(
                 added_pills_as_input_strings.add(input);
                 break;
             }
+            case "channel": {
+                assert(narrow_term.operator === "channel");
+                pill_widget.appendValidatedData(search_channel_pill_from_term(narrow_term));
+                added_pills_as_input_strings.add(input);
+                break;
+            }
             case "search":
                 // This isn't a pill, so we don't add it to `added_pills_as_input_strings`
                 search_operator_strings.push(input);
@@ -543,6 +630,13 @@ export function get_current_search_pill_terms(
                 return {
                     operator: item.operator,
                     operand: item.users[0]!.user_id,
+                    negated: item.negated,
+                };
+            case "channel":
+                assert(item.type === "search_channel");
+                return {
+                    operator: "channel",
+                    operand: item.stream_ids.join(","),
                     negated: item.negated,
                 };
             default:

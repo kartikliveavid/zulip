@@ -35,13 +35,11 @@ export function compute_narrow_title(filter?: Filter): string {
     }
 
     if (filter.has_operator("channel")) {
-        const sub = stream_data.get_sub_by_id_string(
-            filter.terms_with_operator("channel")[0]!.operand,
-        );
-        if (!sub) {
-            // The stream is not set because it does not currently
-            // exist, or it is a private stream and the user is not
-            // subscribed.
+        const operand = filter.terms_with_operator("channel")[0]!.operand;
+        const stream_id_strings = operand.split(",").map((s) => s.trim()).filter(Boolean);
+        if (
+            stream_id_strings.some((sid) => stream_data.get_sub_by_id_string(sid) === undefined)
+        ) {
             return filter_title;
         }
         if (filter.has_operator("topic")) {

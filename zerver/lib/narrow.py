@@ -467,20 +467,28 @@ class NarrowBuilder:
     ) -> Select:
         self.check_not_both_channel_and_dm_narrow(maybe_negate, is_channel_narrow=True)
 
-        try:
-            # Because you can see your own message history for
-            # private channels you are no longer subscribed to, we
-            # need get_stream_by_narrow_operand_access_unchecked here.
-            channel = get_stream_by_narrow_operand_access_unchecked(operand, self.realm)
+        if isinstance(operand, str) and "," in operand:
+            operands = [part.strip() for part in operand.split(",") if part.strip()]
+            if not operands:
+                raise BadNarrowOperatorError("unknown channel " + str(operand))
+        else:
+            operands = [operand]
 
-            if self.is_web_public_query and not channel.is_web_public:
-                raise BadNarrowOperatorError("unknown web-public channel " + str(operand))
-        except Stream.DoesNotExist:
-            raise BadNarrowOperatorError("unknown channel " + str(operand))
+        recipient_ids: list[int] = []
+        for op in operands:
+            try:
+                channel = get_stream_by_narrow_operand_access_unchecked(op, self.realm)
 
-        recipient_id = channel.recipient_id
-        assert recipient_id is not None
-        cond = column("recipient_id", Integer) == recipient_id
+                if self.is_web_public_query and not channel.is_web_public:
+                    raise BadNarrowOperatorError("unknown web-public channel " + str(op))
+            except Stream.DoesNotExist:
+                raise BadNarrowOperatorError("unknown channel " + str(op))
+
+            recipient_id = channel.recipient_id
+            assert recipient_id is not None
+            recipient_ids.append(recipient_id)
+
+        cond = column("recipient_id", Integer).in_(recipient_ids)
         return query.where(maybe_negate(cond))
 
     def by_channels(self, query: Select, operand: str, maybe_negate: ConditionTransform) -> Select:

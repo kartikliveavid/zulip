@@ -439,13 +439,36 @@ export class Filter {
 
                 // Check for user-entered channel name. If the name is valid,
                 // convert it to id.
-                if (
-                    (operator === "channel" || util.is_channel_synonym(operator)) &&
-                    Number.isNaN(Number.parseInt(operand, 10))
-                ) {
-                    const sub = stream_data.get_sub(operand);
-                    if (sub) {
-                        operand = sub.stream_id.toString();
+                if (operator === "channel" || util.is_channel_synonym(operator)) {
+                    if (operand.includes(",")) {
+                        const pieces = operand.split(",").map((s) => s.trim()).filter(Boolean);
+                        const id_strings: string[] = [];
+                        let valid = true;
+                        for (const piece of pieces) {
+                            const as_int = Number.parseInt(piece, 10);
+                            if (!Number.isNaN(as_int) && String(as_int) === piece) {
+                                if (stream_data.get_sub_by_id_string(piece)) {
+                                    id_strings.push(piece);
+                                } else {
+                                    valid = false;
+                                }
+                            } else {
+                                const sub = stream_data.get_sub(piece);
+                                if (sub) {
+                                    id_strings.push(String(sub.stream_id));
+                                } else {
+                                    valid = false;
+                                }
+                            }
+                        }
+                        if (valid && id_strings.length > 0) {
+                            operand = id_strings.join(",");
+                        }
+                    } else if (Number.isNaN(Number.parseInt(operand, 10))) {
+                        const sub = stream_data.get_sub(operand);
+                        if (sub) {
+                            operand = sub.stream_id.toString();
+                        }
                     }
                 }
 
@@ -580,8 +603,13 @@ export class Filter {
             case "near":
             case "with":
                 return Number.isInteger(Number(term.operand));
-            case "channel":
-                return stream_data.get_sub_by_id_string(term.operand) !== undefined;
+            case "channel": {
+                const parts = term.operand.split(",").map((s) => s.trim()).filter(Boolean);
+                if (parts.length === 0) {
+                    return false;
+                }
+                return parts.every((p) => stream_data.get_sub_by_id_string(p) !== undefined);
+            }
             case "channels":
                 return channels_operands.has(term.operand);
             case "topic":
@@ -767,7 +795,8 @@ export class Filter {
                 term_0.operator === "channel" &&
                 !term_0.negated &&
                 term_1.operator === "topic" &&
-                !term_1.negated
+                !term_1.negated &&
+                !term_0.operand.includes(",")
             ) {
                 // `channel` might be undefined if it's coming from a text query
                 const channel = stream_data.get_sub_by_id_string(term_0.operand)?.name;
@@ -836,13 +865,29 @@ export class Filter {
             const prefix_for_operator = Filter.operator_to_prefix(term.operator, term.negated);
             if (prefix_for_operator !== "") {
                 if (term.operator === "channel") {
-                    const stream = stream_data.get_sub_by_id_string(term.operand);
+                    const stream_id_strings = term.operand
+                        .split(",")
+                        .map((s) => s.trim())
+                        .filter(Boolean);
+                    const streams = stream_id_strings.map((sid) =>
+                        stream_data.get_sub_by_id_string(sid),
+                    );
                     const verb = term.negated ? "exclude " : "";
-                    if (stream) {
+                    if (streams.every((s) => s !== undefined)) {
+                        if (streams.length === 1) {
+                            return {
+                                type: "channel",
+                                prefix_for_operator: verb + "messages in #",
+                                operand: util.the(streams).name,
+                            };
+                        }
+                        const names = streams.map((s) => util.the(s).name).sort(util.strcmp);
                         return {
-                            type: "channel",
-                            prefix_for_operator: verb + "messages in #",
-                            operand: stream.name,
+                            type: "plain_text",
+                            content:
+                                verb +
+                                "messages in " +
+                                names.map((n) => "#" + n).join(", "),
                         };
                     }
                     // Assume the operand is a partially formed name and return
@@ -1294,9 +1339,8 @@ export class Filter {
             return "/#narrow/has/reaction/sender/me";
         }
         if (_.isEqual(term_types, ["channel", "topic", "search"])) {
-            const sub = stream_data.get_sub_by_id_string(
-                this.terms_with_operator("channel")[0]!.operand,
-            );
+            const channel_operand = this.terms_with_operator("channel")[0]!.operand;
+            const sub = stream_data.get_sub_by_id_string(channel_operand.split(",")[0]!.trim());
             // if channel does not exist, redirect to home view
             if (!sub) {
                 return "#";
@@ -1317,8 +1361,9 @@ export class Filter {
         if (term_types[1] === "search") {
             switch (term_types[0]) {
                 case "channel": {
+                    const channel_operand = this.terms_with_operator("channel")[0]!.operand;
                     const sub = stream_data.get_sub_by_id_string(
-                        this.terms_with_operator("channel")[0]!.operand,
+                        channel_operand.split(",")[0]!.trim(),
                     );
                     // if channel does not exist, redirect to home view
                     if (!sub) {
@@ -1391,8 +1436,9 @@ export class Filter {
                 icon = "home";
                 break;
             case "channel": {
+                const channel_operand = this.terms_with_operator("channel")[0]!.operand;
                 const sub = stream_data.get_sub_by_id_string(
-                    this.terms_with_operator("channel")[0]!.operand,
+                    channel_operand.split(",")[0]!.trim(),
                 );
                 if (!sub) {
                     icon = "question-circle-o";
@@ -1453,13 +1499,21 @@ export class Filter {
             (term_types.length === 2 && _.isEqual(term_types, ["channel", "topic"])) ||
             (term_types.length === 1 && _.isEqual(term_types, ["channel"]))
         ) {
-            const sub = stream_data.get_sub_by_id_string(
-                this.terms_with_operator("channel")[0]!.operand,
-            );
-            if (!sub) {
+            const channel_term = this.terms_with_operator("channel")[0]!;
+            const operand = channel_term.operand;
+            const stream_id_strings = operand.split(",").map((s) => s.trim()).filter(Boolean);
+            const names = stream_id_strings.map((sid) => {
+                const sub = stream_data.get_sub_by_id_string(sid);
+                return sub?.name;
+            });
+            if (names.some((n) => n === undefined)) {
                 return $t({defaultMessage: "Unknown channel"});
             }
-            return sub.name;
+            names.sort(util.strcmp);
+            if (names.length === 1) {
+                return names[0]!;
+            }
+            return util.format_array_as_list(names, "long", "conjunction");
         }
         const ignore_missing = true;
         if (

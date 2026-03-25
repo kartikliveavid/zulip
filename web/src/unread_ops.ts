@@ -198,7 +198,7 @@ function bulk_update_read_flags_for_narrow(
     caller_modal_id?: string,
 ): void {
     const terms_with_integer_channel_id = narrow.map((term) => {
-        if (term.operator === "channel") {
+        if (term.operator === "channel" && !term.operand.includes(",")) {
             return {
                 ...term,
                 operand: Number.parseInt(term.operand, 10),

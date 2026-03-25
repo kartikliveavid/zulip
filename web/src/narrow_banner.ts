@@ -203,7 +203,9 @@ export function pick_empty_narrow_banner(current_filter: Filter): NarrowBannerDa
         if (
             page_params.is_spectator &&
             first_term.operator === "channel" &&
-            !stream_data.is_web_public_by_stream_id(Number.parseInt(first_term.operand, 10))
+            !stream_data.is_web_public_by_stream_id(
+                Number.parseInt(first_term.operand.split(",")[0]!.trim(), 10),
+            )
         ) {
             // For non web-public streams, show `login_to_access` modal.
             spectators.login_to_access(true);
@@ -212,7 +214,7 @@ export function pick_empty_narrow_banner(current_filter: Filter): NarrowBannerDa
 
         if (streams.length === 1) {
             const stream_sub = stream_data.get_sub_by_id_string(
-                util.the(current_filter.terms_with_operator("channel")).operand,
+                util.the(current_filter.terms_with_operator("channel")).operand.split(",")[0]!.trim(),
             );
             if (!stream_sub) {
                 return {

@@ -368,7 +368,7 @@ export function initialize(): void {
                 } else if (
                     _.isEqual(narrow_filter.sorted_term_types(), ["channel"]) &&
                     compose_state.get_message_type() === "stream" &&
-                    narrow_filter.terms_with_operator("channel")[0]!.operand ===
+                    narrow_filter.terms_with_operator("channel")[0]!.operand.split(",")[0]!.trim() ===
                         compose_state.stream_id()?.toString()
                 ) {
                     display_current_view = $t({

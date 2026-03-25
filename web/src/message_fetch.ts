@@ -293,7 +293,11 @@ function handle_operators_supporting_id_based_api(narrow_parameter: string): str
         );
         const canonical_operator = filter_util.canonicalize_operator(parsed_narrow_operator);
         // TODO: Migrate `channel` to use `number` operand so that we can avoid this conversion.
-        if (canonical_operator === "channel" && typeof raw_term.operand === "string") {
+        if (
+            canonical_operator === "channel" &&
+            typeof raw_term.operand === "string" &&
+            !raw_term.operand.includes(",")
+        ) {
             // An unknown channel will have an empty string set for
             // the operand. And the page_params.narrow may have a
             // channel name as the operand. But all other cases

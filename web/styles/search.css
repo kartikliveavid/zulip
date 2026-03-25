@@ -222,7 +222,9 @@
     }
 
     #searchbox-input-container .user-pill-container,
-    .typeahead-menu .user-pill-container {
+    #searchbox-input-container .channel-pill-container,
+    .typeahead-menu .user-pill-container,
+    .typeahead-menu .channel-pill-container {
         border: 1px solid transparent;
 
         > .pill-label {
@@ -293,11 +295,13 @@
             }
         }
 
-        &.focused .user-pill-container {
+        &.focused .user-pill-container,
+        &.focused .channel-pill-container {
             flex-flow: row wrap;
         }
 
-        .user-pill-container {
+        .user-pill-container,
+        .channel-pill-container {
             gap: 2px 5px;
             /* Don't enforce a height, as user-pill containers
                 can contain multiple user pills that wrap onto

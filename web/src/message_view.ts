@@ -573,8 +573,9 @@ export let show = (raw_terms: NarrowTerm[], show_opts: ShowMessageViewOpts): voi
                 // location, then we should retarget this narrow operation
                 // to where the message is located now.
                 const narrow_topic = filter.terms_with_operator("topic")[0]!.operand;
+                const channel_operand = filter.terms_with_operator("channel")[0]!.operand;
                 const narrow_stream_data = stream_data.get_sub_by_id_string(
-                    filter.terms_with_operator("channel")[0]!.operand,
+                    channel_operand.split(",")[0]!.trim(),
                 );
                 if (!narrow_stream_data) {
                     // The stream id is invalid or incorrect in the URL.

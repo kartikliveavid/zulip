@@ -1207,7 +1207,10 @@ export function get_sidebar_stream_topic_info(filter: Filter): {
         return result;
     }
 
-    const stream_id = Number.parseInt(channel_terms[0]!.operand, 10);
+    const stream_id = Number.parseInt(
+        channel_terms[0]!.operand.split(",")[0]!.trim(),
+        10,
+    );
 
     if (!stream_id) {
         return result;

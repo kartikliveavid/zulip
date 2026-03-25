@@ -44,8 +44,14 @@ export function encode_operand(term: NarrowCanonicalTerm): string {
         case "sender":
             slug = people.user_ids_to_slug([term.operand]);
             break;
-        case "channel":
-            return encode_stream_id(Number.parseInt(term.operand, 10));
+        case "channel": {
+            const stream_ids = term.operand
+                .split(",")
+                .map((s) => s.trim())
+                .filter(Boolean)
+                .map((id_string) => Number.parseInt(id_string, 10));
+            return stream_ids.map((id) => encode_stream_id(id)).join(",");
+        }
     }
 
     return slug ?? internal_url.encodeHashComponent(String(term.operand));
@@ -97,7 +103,14 @@ export function decode_operand(
     operand = internal_url.decodeHashComponent(operand);
 
     if (operator === "channel") {
-        return stream_data.slug_to_stream_id(operand)?.toString() ?? "";
+        const slug_parts = operand.split(",").map((s) => s.trim()).filter(Boolean);
+        const ids = slug_parts
+            .map((slug) => stream_data.slug_to_stream_id(slug)?.toString())
+            .filter((id): id is string => id !== undefined);
+        if (ids.length !== slug_parts.length) {
+            return "";
+        }
+        return ids.join(",");
     }
 
     return operand;

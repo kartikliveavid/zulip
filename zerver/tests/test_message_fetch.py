@@ -2867,6 +2867,30 @@ class GetOldMessagesTest(ZulipTestCase):
                     self.assertEqual(message_dict["display_recipient"], channel_name)
                     self.assertEqual(message_dict["recipient_id"], channel.recipient_id)
 
+    def test_get_messages_with_narrow_multiple_channels(self) -> None:
+        hamlet = self.example_user("hamlet")
+        self.login_user(hamlet)
+        realm = hamlet.realm
+
+        scotland = get_stream("Scotland", realm)
+        verona = get_stream("Verona", realm)
+        self.subscribe(hamlet, "Scotland")
+        self.subscribe(hamlet, "Verona")
+
+        Message.objects.filter(realm_id=realm.id, recipient__type=Recipient.STREAM).delete()
+        for _ in range(3):
+            self.send_stream_message(hamlet, "Scotland", content="scotland msg")
+        for _ in range(2):
+            self.send_stream_message(hamlet, "Verona", content="verona msg")
+
+        operand = f"{scotland.id},{verona.id}"
+        narrow = [dict(operator="channel", operand=operand)]
+        result = self.get_and_check_messages(dict(narrow=orjson.dumps(narrow).decode(), num_after=100))
+        messages = result["messages"]
+        self.assert_length(messages, 5)
+        recipient_ids = {m["recipient_id"] for m in messages}
+        self.assertEqual(recipient_ids, {scotland.recipient_id, verona.recipient_id})
+
     def test_get_visible_messages_with_narrow_channel(self) -> None:
         self.login("hamlet")
         self.subscribe(self.example_user("hamlet"), "Scotland")

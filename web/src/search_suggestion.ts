@@ -268,6 +268,81 @@ function get_channel_suggestions(
     });
 }
 
+function get_multi_channel_group_suggestions(
+    last: NarrowCanonicalTermSuggestion,
+    terms: NarrowCanonicalTerm[],
+): Suggestion[] {
+    if (terms.length === 0) {
+        return [];
+    }
+    const last_complete_term = terms.at(-1)!;
+    if (last_complete_term.operator !== "channel") {
+        return [];
+    }
+    if (
+        !check_validity(last_complete_term.operator, [last_complete_term], ["channel"], [])
+    ) {
+        return [];
+    }
+
+    let new_query: string;
+    let existing_channel_operand: string;
+
+    if (last.operator === "search") {
+        new_query = last.operand;
+        existing_channel_operand = last_complete_term.operand;
+        terms = terms.slice(-1);
+    } else if (last.operator === "") {
+        new_query = "";
+        existing_channel_operand = last_complete_term.operand;
+    } else {
+        return [];
+    }
+
+    if (
+        !check_validity(last_complete_term.operator, terms, ["channel"], [
+            {operator: "dm"},
+            {operator: "dm-including"},
+        ])
+    ) {
+        return [];
+    }
+
+    const existing_ids = existing_channel_operand
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+    for (const id of existing_ids) {
+        if (stream_data.get_sub_by_id_string(id) === undefined) {
+            return [];
+        }
+    }
+
+    let channels = stream_data.subscribed_streams();
+    channels = channels.filter((channel_name) => {
+        const sub = stream_data.get_sub_by_name(channel_name);
+        assert(sub !== undefined);
+        if (existing_ids.includes(String(sub.stream_id))) {
+            return false;
+        }
+        return new_query === "" || channel_matches_query(channel_name, new_query);
+    });
+
+    channels = typeahead_helper.sorter(new_query, channels, (x) => x);
+
+    return channels.map((channel_name) => {
+        const sub = stream_data.get_sub_by_name(channel_name);
+        assert(sub !== undefined);
+        const new_operand = [...existing_ids, sub.stream_id.toString()].join(",");
+        const term: NarrowCanonicalTerm = {
+            operator: "channel",
+            operand: new_operand,
+            negated: last_complete_term.negated,
+        };
+        return Filter.unparse([term]);
+    });
+}
+
 function get_group_suggestions(
     group_operator: "dm" | "dm-including",
 ): (last: NarrowCanonicalTermSuggestion, terms: NarrowCanonicalTerm[]) => Suggestion[] {
@@ -555,7 +630,10 @@ function get_topic_suggestions(
         case "search":
             guess = operand;
             if (filter.has_operator("channel")) {
-                channel_id_or_operand_str = filter.terms_with_operator("channel")[0]!.operand;
+                channel_id_or_operand_str = filter
+                    .terms_with_operator("channel")[0]!
+                    .operand.split(",")[0]!
+                    .trim();
                 // We want to show topics that belong only to the
                 // channel mentioned in the `channel` operator, if it exists.
                 show_topics_from_other_channels = false;
@@ -579,7 +657,7 @@ function get_topic_suggestions(
     const excluded_channel_ids = new Set(
         terms
             .filter((term) => term.negated && term.operator === "channel")
-            .map((term) => term.operand),
+            .flatMap((term) => term.operand.split(",").map((s) => s.trim()).filter(Boolean)),
     );
 
     const current_channel_topic_entries: ChannelTopicEntry[] = [];
@@ -1161,6 +1239,7 @@ export let get_suggestions = function (
         // searching user probably is looking to make a group DM.
         get_group_suggestions("dm"),
         get_group_suggestions("dm-including"),
+        get_multi_channel_group_suggestions,
         get_channels_filter_suggestions,
         get_operator_suggestions,
         get_is_filter_suggestions,
@@ -1178,6 +1257,7 @@ export let get_suggestions = function (
             get_channels_filter_suggestions,
             get_operator_suggestions,
             get_is_filter_suggestions,
+            get_multi_channel_group_suggestions,
             get_channel_suggestions,
             get_people("sender"),
             get_topic_suggestions,
