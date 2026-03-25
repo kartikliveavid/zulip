@@ -2885,7 +2885,9 @@ class GetOldMessagesTest(ZulipTestCase):
 
         operand = f"{scotland.id},{verona.id}"
         narrow = [dict(operator="channel", operand=operand)]
-        result = self.get_and_check_messages(dict(narrow=orjson.dumps(narrow).decode(), num_after=100))
+        result = self.get_and_check_messages(
+            dict(narrow=orjson.dumps(narrow).decode(), num_after=100)
+        )
         messages = result["messages"]
         self.assert_length(messages, 5)
         recipient_ids = {m["recipient_id"] for m in messages}
