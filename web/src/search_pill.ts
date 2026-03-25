@@ -92,7 +92,13 @@ export function get_search_string_from_item(item: SearchPill): string {
             break;
         case "channel":
             assert(item.type === "search_channel");
-            operand = item.stream_ids.join(",");
+            operand = item.stream_ids
+                .map((stream_id) => {
+                    const sub = stream_data.get_sub_by_id_string(String(stream_id));
+                    assert(sub !== undefined);
+                    return sub.name;
+                })
+                .join(",");
             break;
         default:
             operand = item.operand;
